@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="saved_to_downloads">تم الحفظ في Downloads/Decimen</string>
+    <string name="save_failed">تعذّر حفظ الملف</string>
+</resources>

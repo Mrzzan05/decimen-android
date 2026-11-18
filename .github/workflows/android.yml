@@ -1,0 +1,87 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach the APK to a tagged release
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      # Job-level so the `if:` on the signing step can see whether it is set.
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+      - run: npm test
+      # Web build -> dist/, then copy it into the Android project.
+      - run: npm run build
+      - run: npx cap sync android
+
+      - name: Version
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          IFS=. read -r MA MI PA <<< "${VERSION%%-*}"
+          # 0.5.3 -> 503; the run number keeps every CI build installable over the last.
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$(( (MA * 10000 + MI * 100 + PA) * 1000 + (GITHUB_RUN_NUMBER % 1000) ))" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        id: signed
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease -PversionName=${{ steps.ver.outputs.name }} -PversionCode=${{ steps.ver.outputs.code }}
+          cp app/build/outputs/apk/release/app-release.apk ../decimen-${{ steps.ver.outputs.name }}.apk
+
+      - name: Build debug APK (no signing secrets configured)
+        if: ${{ steps.signed.outcome == 'skipped' }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug -PversionName=${{ steps.ver.outputs.name }} -PversionCode=${{ steps.ver.outputs.code }}
+          cp app/build/outputs/apk/debug/app-debug.apk ../decimen-${{ steps.ver.outputs.name }}-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decimen-apk
+          path: decimen-*.apk
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" decimen-*.apk --clobber

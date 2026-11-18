@@ -53,6 +53,7 @@ import {
 } from "../shared/protocol";
 import { statusLine } from "../shared/status-line";
 import { requestScreenWakeLock } from "../shared/wake-lock";
+import { setSenderAwake, takeShared, watchShare } from "../shared/native";
 import { wireShareDialog } from "../shared/share-dialog";
 
 await initI18n();
@@ -277,6 +278,7 @@ function stopTransfer(): void {
   generation++;
   if (activeExport) activeExport.cancelled = true;
   selectedFile = null;
+  setSenderAwake(false);
   setStageFullscreen(false);
   stage.hidden = true;
   showStreamPanels(false);
@@ -459,6 +461,28 @@ async function main() {
   }
   exportButton.addEventListener("click", () => void runExport());
   await requestScreenWakeLock();
+  if (!DEMO && !BENCHMARK) void watchShare(() => void receiveShared());
+}
+
+/** Android Share sheet → the same path as picking a file or pasting text. */
+async function receiveShared(): Promise<void> {
+  const shared = await takeShared();
+  if (!shared) return;
+  if ("text" in shared) {
+    const radio = modeInputs.find((input) => input.value === "snippet");
+    if (radio) radio.checked = true;
+    applyMode();
+    snippetText.value = shared.text;
+    await selectSnippet();
+    return;
+  }
+  const radio = modeInputs.find((input) => input.value === "file");
+  if (radio) radio.checked = true;
+  applyMode();
+  const transfer = new DataTransfer();
+  transfer.items.add(shared.file);
+  cfgFile.files = transfer.files;
+  await selectFile();
 }
 
 /** Only on a fresh pick — a settings change restarts the stream too, and
@@ -481,6 +505,7 @@ async function startStream(revealStage = false) {
   }
   const { name, size: fileSize, payload, compression, transmittedSize } = selectedFile;
   if (gen !== generation) return; // superseded while fetching
+  setSenderAwake(true);
   const txFps = Number(cfgFps.value);
   const frameBytes = Number(cfgBytes.value);
   const ecc = cfgEcc.value as "L" | "M" | "Q" | "H";

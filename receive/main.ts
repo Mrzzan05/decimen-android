@@ -47,6 +47,7 @@ import {
 import { NO_SIGNAL_HINT_FRAME_BYTES, NO_SIGNAL_HINT_TX_FPS } from "../shared/send-settings";
 import { statusLine } from "../shared/status-line";
 import { requestScreenWakeLock } from "../shared/wake-lock";
+import { isNativeApp, saveFileNative } from "../shared/native";
 import { applyAdvancedConstraint, probeCameraCapabilities } from "../shared/platform";
 import { closeOnBackdropClick } from "../shared/dialog";
 import { supportLink } from "./support";
@@ -1141,6 +1142,14 @@ async function finish(container: Uint8Array, hashOk: boolean, seconds: number) {
     download.href = url;
     download.download = file.name;
     download.textContent = msg.receive.saveFile(file.name);
+    if (isNativeApp()) {
+      // The Android WebView ignores `download` on blob URLs; write through the
+      // native bridge instead (it shows its own "saved" / "failed" toast).
+      download.addEventListener("click", (event) => {
+        event.preventDefault();
+        void saveFileNative(file.name, file.type, file.bytes);
+      });
+    }
     // Reading order of the finished page: heading, the run's numbers, the
     // thing that arrived, Save under it, "Receive another file", and the
     // Transfer summary panel last in its natural spot after #result.

@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Decimen</string>
+    <string name="title_activity_main">Decimen</string>
+    <string name="package_name">io.github.mrzzan05.opticaltransfer</string>
+    <string name="custom_url_scheme">io.github.mrzzan05.opticaltransfer</string>
+    <string name="saved_to_downloads">Saved to Downloads/Decimen</string>
+    <string name="save_failed">Could not save the file</string>
+</resources>
